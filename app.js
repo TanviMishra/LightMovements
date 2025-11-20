@@ -49,7 +49,7 @@ class LightMovements {
             pointer-events: none;
             z-index: 1000;
         `;
-        document.body.appendChild(indicator);
+        // document.body.appendChild(indicator);
         
         // Update indicator text
         const updateIndicator = () => {
@@ -436,24 +436,22 @@ class LightMovements {
                     float concentration = 1.0 - smoothstep(0.0, 0.25, distToLine);
                     concentration = pow(concentration, 0.5); // Sharper falloff
                     
-                    // Add glimmering/twinkling diamond sparkles (fewer, spread out along wavy line)
+                    // Add glimmering/twinkling diamond sparkles (using dappled light approach, concentrated along wavy line)
                     float glimmer = 0.0;
+                    vec2 sparkleUV = uv * 25.0;
                     
-                    // Reduced to 2 layers, larger scale for more spread out sparkles
                     for (int layer = 0; layer < 2; layer++) {
-                        float layerScale = 18.0 + float(layer) * 12.0; // Larger scale = more spread out
-                        float layerSpeed = 0.3 + float(layer) * 0.2;
+                        float layerScale = 20.0 + float(layer) * 15.0;
+                        vec2 layerUV = sparkleUV * (layerScale / 25.0);
+                        layerUV += vec2(sin(u_time * 0.2 + float(layer)), cos(u_time * 0.15 + float(layer))) * 0.5;
                         
-                        vec2 glimmerUV = waveUV * layerScale;
-                        glimmerUV += vec2(u_time * layerSpeed * 0.5, u_time * layerSpeed * 0.3);
+                        vec2 grid = floor(layerUV);
+                        vec2 cell = fract(layerUV);
                         
-                        vec2 grid = floor(glimmerUV);
-                        vec2 cell = fract(glimmerUV);
-                        
-                        float cellHash = hash(grid + vec2(float(layer) * 17.3));
+                        float cellHash = hash(grid + vec2(float(layer) * 23.7));
                         
                         // Get world position to check distance to wavy line
-                        vec2 worldPos = (grid + vec2(0.5)) / layerScale;
+                        vec2 worldPos = (grid + vec2(0.5)) / (layerScale / 25.0);
                         vec2 worldUV = worldPos / vec2(1.5, 3.0);
                         worldUV.y = (worldUV.y + 0.5) / 2.0; // Convert back to 0-1 range
                         
@@ -463,35 +461,25 @@ class LightMovements {
                                          sin(worldUV.y * 11.0 + u_time * 0.7) * 0.05;
                         lineXAtY += 0.5;
                         float distToLineAtY = abs(worldUV.x - lineXAtY);
-                        float localConcentration = 1.0 - smoothstep(0.0, 0.15, distToLineAtY); // Tighter around line
-                        localConcentration = pow(localConcentration, 0.8);
+                        float localConcentration = 1.0 - smoothstep(0.0, 0.04, distToLineAtY); // Very tight around line
+                        localConcentration = pow(localConcentration, 0.5); // Very sharp falloff
                         
-                        // Much higher threshold for fewer sparkles - only very close to line and high hash
-                        float baseThreshold = 0.96 + float(layer) * 0.01; // Much higher threshold
-                        float adjustedThreshold = mix(baseThreshold, 0.92, localConcentration); // Still high even near line
+                        // Only allow sparkles very close to the line - much higher threshold
+                        float baseThreshold = 0.98 + float(layer) * 0.005; // Very high base threshold
+                        float adjustedThreshold = mix(baseThreshold, 0.94, localConcentration); // Only lower near line
                         
-                        if (cellHash > adjustedThreshold) {
-                            vec2 center = grid + vec2(0.5) + (cellHash - 0.5) * 0.4;
-                            vec2 worldPos2 = center / layerScale;
+                        // Sparkles appear only very close to wavy line
+                        if (cellHash > adjustedThreshold && localConcentration > 0.3) {
+                            vec2 center = grid + vec2(0.5) + (cellHash - 0.5) * 0.3;
                             
-                            vec2 waveOffset = vec2(
-                                sin(worldPos2.y * 10.0 + u_time) * 0.02,
-                                cos(worldPos2.x * 8.0 + u_time) * 0.01
-                            );
-                            vec2 distortedCenter = center + waveOffset * layerScale;
-                            
-                            float baseSize = 1.4 + float(layer) * 0.4; // Slightly bigger since fewer
-                            float sizeVariation = 0.7 + cellHash * 0.6;
-                            float sparkleSize = baseSize * sizeVariation;
+                            float sparkleSize = 0.6 + cellHash * 0.7; // Smaller size, no multiplier
                             
                             float twinklePhase = cellHash * 6.28318;
-                            float twinkleSpeed = 2.5 + cellHash * 1.5;
+                            float twinkleSpeed = 2.0 + cellHash * 1.5;
                             float twinkle = sin(u_time * twinkleSpeed + twinklePhase) * 0.5 + 0.5;
-                            twinkle = 0.3 + twinkle * 0.7;
-                            float brightPeak = pow(twinkle, 0.5);
-                            twinkle = mix(twinkle, brightPeak, 0.4);
+                            twinkle = 0.4 + twinkle * 0.6;
                             
-                            float star = diamondSparkle(glimmerUV, distortedCenter, 1.0, u_time, sparkleSize);
+                            float star = diamondSparkle(layerUV, center, 1.0, u_time, sparkleSize);
                             
                             float intensity = 0.6 + cellHash * 0.4;
                             intensity *= twinkle;
@@ -501,10 +489,7 @@ class LightMovements {
                         }
                     }
                     
-                    // Remove high-frequency sparkles - too many
-                    // Just use the main glimmer layers
-                    
-                    brightness += glimmer * 1.0; // Slightly brighter since fewer sparkles
+                    brightness += glimmer * 1.0;
                     
                 } else {
                     // DAPPLED LIGHT MODE
